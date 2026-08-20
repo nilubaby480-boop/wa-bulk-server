@@ -1,28 +1,62 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const { makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
-// MongoDB Connection
-const MONGO_URI = "mongodb+srv://nilubaby409_db_user:UphSij6mLcYMhMiv@cluster0.h4qvmyr.mongodb.net/?appName=Cluster0";
+let sock;
 
-mongoose.connect(MONGO_URI)
-  .then(() => console.log("MongoDB Connected Successfully"))
-  .catch(err => console.log("DB Error:", err));
+// WhatsApp Web Connection Setup
+async function connectToWhatsApp() {
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+    
+    sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: true
+    });
 
-// Test Home Route
-app.get('/', (req, res) => {
-    res.send("Server is Live & Working!");
-});
+    sock.ev.on('creds.update', saveCreds);
 
-// Main Schedule Route
-app.post('/schedule', (req, res) => {
-    const { contacts, message, repeatDays } = req.body;
-    console.log("Data Received:", contacts, message, repeatDays);
-    res.status(200).json({ status: "success", message: "Task Scheduled!" });
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
+        if (connection === 'close') {
+            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            if (shouldReconnect) connectToWhatsApp();
+        } else if (connection === 'open') {
+            console.log('WhatsApp Connected Successfully!');
+        }
+    });
+}
+
+connectToWhatsApp();
+
+// Automatic Sending Loop with 5-second Gap
+app.post('/schedule', async (req, res) => {
+    const { contacts, message } = req.body;
+    res.status(200).json({ status: "success", message: "Bulk Sending Started!" });
+
+    for (let number of contacts) {
+        try {
+            let formattedNumber = number.replace(/[^0-9]/g, '');
+            if (!formattedNumber.startsWith('91') && formattedNumber.length === 10) {
+                formattedNumber = '91' + formattedNumber;
+            }
+            const jid = `${formattedNumber}@s.whatsapp.net`;
+
+            if (sock) {
+                await sock.sendMessage(jid, { text: message });
+                console.log(`Message sent to ${formattedNumber}`);
+            }
+            
+            // Safe gap: 5 seconds per message
+            await new Promise(resolve => setTimeout(resolve, 5000));
+        } catch (err) {
+            console.log(`Error sending to ${number}:`, err);
+        }
+    }
 });
 
 const PORT = process.env.PORT || 3000;
