@@ -13,11 +13,15 @@ mongoose.connect(MONGO_URI)
   .then(() => console.log("MongoDB Connected Successfully"))
   .catch(err => console.log("DB Error:", err));
 
-// API Endpoint
-app.post('/api/schedule', (req, res) => {
+// Test Home Route
+app.get('/', (req, res) => {
+    res.send("Server is Live & Working!");
+});
+
+// Main Schedule Route
+app.post('/schedule', (req, res) => {
     const { contacts, message, repeatDays } = req.body;
     console.log("Data Received:", contacts, message, repeatDays);
-    
     res.status(200).json({ status: "success", message: "Task Scheduled!" });
 });
 
